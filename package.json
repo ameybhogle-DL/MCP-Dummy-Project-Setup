@@ -12,12 +12,17 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "latest",
     "cors": "^2.8.6",
+    "dotenv": "^17.4.1",
+    "eventsource": "^4.1.0",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.4.1",
+    "openai": "^6.34.0",
     "zod": "latest"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
+    "@types/eventsource": "^1.1.15",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "latest",

@@ -1,23 +1,30 @@
-# MCP Server Setup & Requirements Research
+# Standalone MCP Chatbot CRUD Demo (OSM Proof of Concept)
 
 ## 1. Overview
-The specific purpose of this Model Context Protocol (MCP) server is yet to be determined. Currently, this document outlines the infrastructure, dependencies, and architectural requirements needed to host a secure, HTTP-based MCP server.
+The goal of this proof-of-concept is to demonstrate how an AI chatbot can act as a bridge to perform CRUD operations on database entries (e.g., forms/projects) within the OSM ecosystem. We built a dual-system: a secure Model Context Protocol (MCP) Server and an autonomous Chatbot Client.
 
-## 2. System Level Prerequisites
-- **Node.js**: The JavaScript runtime environment needed to execute the server.
-- **Windows PowerShell**: Requires the Execution Policy to be set to `RemoteSigned` (or bypassed) to allow NPM to execute local module scripts on Windows.
+## 2. Requirements & Prerequisites
+- **Node.js**: The runtime environment executing both the server (`index.ts`) and the client (`chatbot.ts`).
+- **MongoDB**: A local MongoDB database (`mongodb://localhost:27017/osm_mock`) used to securely persist 'Project/Form' documents.
+- **LLM API Key**: A Google Gemini API key to serve as the "brain" of the chatbot. (The client utilizes OpenAI SDK compatibility to interact with Gemini).
 
-## 3. NPM Dependencies Needed
-- **`@modelcontextprotocol/sdk`**: The core SDK that handles the underlying MCP logic, JSON-RPC communication, and tool registration.
-- **`express`**: The HTTP web server framework used to expose the server over a network rather than local standard I/O (stdio).
-- **`jsonwebtoken`**: The cryptographic library used to issue and decode the JSON Web Tokens for authentication.
-- **`cors`**: Middleware to allow external clients and web apps to make API requests to the server without being blocked by Cross-Origin Resource Sharing rules.
-- **TypeScript & TSX**: Used (`@types/...`) to provide static typing during development and dynamically compile the code when running the `dev` script.
+## 3. Architecture Breakdown
 
-## 4. Architectural Requirements
-To support a secure MCP implementation:
-1. **Transport Protocol**: The server had to be migrated from `StdioServerTransport` (which runs via command-line pipes) to `SSEServerTransport` (Server-Sent Events) to allow HTTP headers.
-2. **Security Gateway**: An authentication middleware must intercept all requests. It specifically looks for the `Authorization: Bearer <token>` header, rejecting any connections that lack valid credentials.
-3. **Endpoint Structure**: 
-   - `GET /sse`: Required to hold open the real-time event stream.
-   - `POST /message`: Required to receive the actual JSON-RPC tool/call executions from the client.
+### The MCP Server (`index.ts`)
+- **Transport**: Utilizes `SSEServerTransport` (Server-Sent Events) over an Express.js HTTP server.
+- **Security**: Secured strictly with a custom `jsonwebtoken` (JWT) middleware demanding an `Authorization` header.
+- **Tools**: Registers 4 Native Database Tools (`create_project`, `list_projects`, `update_project`, `delete_project`) that directly execute Mongoose commands on the DB.
+- **Visualization**: Exposes a basic HTML UI at `/dashboard` to let managers visually monitor live database changes without seeing terminal commands.
+
+### The Chatbot Client (`chatbot.ts`)
+- **Transport**: Uses `SSEClientTransport` to bind securely to the MCP server.
+- **Execution Loop**: Ingests the 4 MCP tools, maps them instantly to LLM-compatible function definitions, processes natural language input, triggers the MCP server, and summarizes the DB results.
+
+## 4. Problems Faced & Solutions
+1. **Express Body-Parser Conflict**: We initially used `express.json()` on the POST `/message` routing endpoint. Since the SDK’s `handlePostMessage` expects to read the raw HTTP stream natively, Express was preemptively consuming and closing the data stream, triggering a `400 Bad Request`. **Fix:** Removed `express.json()` to allow the MCP package to parse the stream itself.
+2. **ES Modules vs CommonJS**: Attempting to invoke the base `eventsource` polyfill in the client clashed with our TypeScript ES Module configs (`require is not defined`). **Fix:** Overrode the module loading by utilizing Node's native `module.createRequire` bridge.
+3. **TypeScript DOM Polling Constraints**: The TypeScript DOM library refused to acknowledge HTTP `headers` inside `EventSourceInit` because standard web browsers deny headers on SSE streams. **Fix:** Used a brute-force `as any` typecast allowing the Node `eventsource` backend to flawlessly accept the JWT token regardless.
+4. **xAI Billing Restriction**: Attempted to use the `grok-beta`/`grok-2` models natively, but the OpenAI SDK abstracted the failure to a basic "Model not found" error because the developer account lacked a prepaid balance. **Fix:** Migrated to Google Gemini's free-tier utilizing the `generativelanguage` proxy.
+
+## 5. Next Steps
+- Execute Phase 2 (Dummy API Connection) to compare direct MongoDB modification with REST API modification architectures.
