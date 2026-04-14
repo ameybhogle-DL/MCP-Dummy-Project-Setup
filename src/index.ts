@@ -20,11 +20,11 @@ app.get("/dashboard", async (req, res) => {
     <h2>OSM Demo Dashboard (Live DB View)</h2>
     <table border="1" cellpadding="10" style="border-collapse: collapse; width: 100%; max-width: 800px; background: white;">
       <tr><th>ID</th><th>Project Name</th><th>Status</th></tr>`;
-  
+
   projects.forEach(p => {
     html += `<tr><td>${p._id}</td><td><b>${p.projectName}</b></td><td><span style="background: #eef; padding: 5px; border-radius: 5px;">${p.status}</span></td></tr>`;
   });
-  
+
   html += `</table><p style="color: gray;">Refresh to see chatbot changes in the database.</p></html>`;
   res.send(html);
 });
@@ -74,10 +74,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "update_project",
       description: "Updates an existing project status",
-      inputSchema: { 
-        type: "object", 
-        properties: { id: { type: "string" }, status: { type: "string" } }, 
-        required: ["id", "status"] 
+      inputSchema: {
+        type: "object",
+        properties: { id: { type: "string" }, status: { type: "string" } },
+        required: ["id", "status"]
       },
     },
     {
@@ -98,7 +98,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
     throw new Error("Invalid arguments");
   }
-  
+
   if (request.params.name === "list_projects") {
     const projects = await Project.find({});
     return { content: [{ type: "text", text: JSON.stringify(projects, null, 2) }] };

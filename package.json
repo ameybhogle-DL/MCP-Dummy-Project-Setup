@@ -7,7 +7,12 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "chatbot": "tsx src/chatbot.ts",
+    "api": "tsx src/api.ts",
+    "dev:api": "tsx src/mcp-api-bridge.ts",
+    "web:dev": "npm run dev --prefix web-app",
+    "dev:all": "concurrently \"npm run api\" \"npm run dev:api\" \"npm run web:dev\" --names \"API,BRIDGE,WEB\" --prefix name"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "latest",
@@ -26,6 +31,7 @@
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "latest",
+    "concurrently": "^8.2.0",
     "tsx": "latest",
     "typescript": "latest"
   }
