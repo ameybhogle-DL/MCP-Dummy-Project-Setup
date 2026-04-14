@@ -7,7 +7,7 @@ async function bruteForce() {
   const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
   const json = await resp.json();
   const models = json.models || [];
-  
+
   const toTry = [
     "gemini-2.0-flash",
     "gemini-2.0-flash-lite",
@@ -18,9 +18,9 @@ async function bruteForce() {
     "gemini-1.5-flash-002",
     "gemini-2.0-flash-001"
   ];
-  
+
   // Also add everything from the list that says "flash"
-  models.forEach(m => {
+  models.forEach((m: { name: string; }) => {
     const name = m.name.split("/")[1];
     if (name.includes("flash") && !toTry.includes(name)) {
       toTry.push(name);

@@ -5,19 +5,19 @@
 
 ---
 
-## 1. How we built it
-We started with a simple text-based chatbot and turned it into a professional website dashboard. We wanted to see which way of building the AI is better for the team.
+## 1. How I built it
+I started with a simple text-based chatbot and turned it into a professional website dashboard. I wanted to see which way of building the AI is better for the team.
 
-### What we did:
+### What I did:
 1. **First Version**: A simple chatbot that runs on a computer screen (no website).
-2. **Move to Cloud**: We switched from local tools to powerful cloud AI (Gemini and Groq) to make the chatbot smarter.
-3. **Double Dashboard**: We built a website that shows two different ways to run the AI side-by-side so we can compare them.
-4. **Better Look and Security**: We added a login screen and made the chat messages look clean and easy to read.
+2. **Move to Cloud**: I switched from local tools to powerful cloud AI (Gemini and Groq) to make the chatbot smarter.
+3. **Double Dashboard**: I built a website that shows two different ways to run the AI side-by-side so I can compare them.
+4. **Better Look and Security**: I added a login screen and made the chat messages look clean and easy to read.
 
 ---
 
-## 2. Tools we used
-To make this work, we used these main tools:
+## 2. Tools I used
+To make this work, I used these main tools:
 - **Groq & Gemini**: The "Brain" of the AI.
 - **Node.js**: The motor that runs the background code.
 - **React**: The tool we used to build the website.
@@ -46,9 +46,9 @@ To make this work, we used these main tools:
 To successfully integrate the MCP chatbot into the real OSM system, we have identified the following key requirements:
 
 ### 🚀 Integration Path:
-1. **Deep Software Understanding**: To connect the AI correctly, we need a full review of how the OSM software handles its internal task logic.
-2. **Access to the Real Codebase**: We need a dedicated developer environment (for example, a **new branch on GitHub**) so we can safely test the AI integration without affecting the live software.
-3. **Professional Tooling**: As this research scales up, we have moved to advanced tools like **VS Code Copilot (Claude Opus)** to handle the more complex coding and integration logic.
+1. **OSM Software Understanding**: To connect the AI correctly, I need a full review of how the OSM software handles its internal task logic.
+2. **Access to the Real Codebase**: I need a dedicated developer environment (for example, a **new branch on GitHub**) so we can safely test the AI integration without affecting the live software.
+3. **Professional Tooling**: As this research scales up, I have moved to advanced tools like **VS Code Copilot (Claude Opus)** to handle the more complex coding and integration logic.
 4. **Resilient API Tier**: A dedicated, paid subscription for the AI engine (Groq) to ensure zero-latency responses for the team.
 
 ---
