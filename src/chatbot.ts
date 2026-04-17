@@ -164,10 +164,27 @@ async function executeToolCalls(toolCalls: any[], messages: any[]): Promise<void
 
     console.log(`📡 [Result ---> ${textResponse}]`);
 
+    // If the tool returned a JSON array of projects, format as a numbered list
+    let pushedContent = textResponse as string;
+    try {
+      const parsed = JSON.parse(textResponse);
+      if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].projectName) {
+        const lines = parsed.map((p: any, i: number) => {
+          const name = p.projectName || p.projectName === 0 ? p.projectName : '<unnamed>';
+          const status = p.status || '';
+          const id = p._id || p.id || '';
+          return `${i + 1}. ${name} — ${status}${id ? ` (ID: ${id})` : ''}`;
+        });
+        pushedContent = `Here are the current projects in the system:\n\n` + lines.join('\n');
+      }
+    } catch (e) {
+      // not JSON — leave as-is
+    }
+
     messages.push({
       role: "tool",
       tool_call_id: call.id,
-      content: textResponse as string
+      content: pushedContent
     });
   }
 }
@@ -175,6 +192,142 @@ async function executeToolCalls(toolCalls: any[], messages: any[]): Promise<void
 // ------------------------------------------------------------
 // 5. CHATBOT LOGIC
 // ------------------------------------------------------------
+// Simple in-memory session store for conversational form-filling
+type FormState = {
+  intent: string;
+  collected: Record<string, any>;
+  fieldIndex: number;
+};
+
+const sessions = new Map<string, FormState>();
+let lastProjectList: any[] = [];
+
+// Project form schema (order matters)
+const PROJECT_SCHEMA = [
+  { name: "projectName", prompt: "Please provide the project name:" },
+  { name: "status", prompt: "Provide status (Draft / In Progress / Completed). Default: Draft", default: "Draft" }
+];
+
+// Update form schema
+const UPDATE_SCHEMA = [
+  { name: "id", prompt: "Provide the project ID (or numbered ID from the list):" },
+  { name: "field", prompt: "Which field would you like to update? (name/status)" },
+  { name: "value", prompt: "Provide the new value:" }
+];
+
+function startUpdateForm(sessionId: string) {
+  sessions.set(sessionId, { intent: "update_project", collected: {}, fieldIndex: 0 });
+}
+
+function getCurrentUpdateField(sessionId: string) {
+  const s = sessions.get(sessionId);
+  if (!s) return null;
+  return UPDATE_SCHEMA[s.fieldIndex] ?? null;
+}
+
+function advanceUpdateField(sessionId: string) {
+  const s = sessions.get(sessionId);
+  if (!s) return;
+  s.fieldIndex += 1;
+  sessions.set(sessionId, s);
+}
+
+async function submitUpdateForm(sessionId: string, messages: any[]) {
+  const s = sessions.get(sessionId);
+  if (!s) return;
+  const args: any = {};
+  const id = s.collected.id;
+  if (!id) {
+    messages.push({ role: "assistant", content: "No project ID provided. Update cancelled." });
+    sessions.delete(sessionId);
+    return;
+  }
+  // Allow numeric references (1-based) that map to the last listed projects
+  let resolvedId = id;
+  if (/^\d+$/.test(String(id))) {
+    const idx = Number(id) - 1;
+    if (lastProjectList[idx]) resolvedId = lastProjectList[idx]._id || lastProjectList[idx].id;
+  }
+  if (s.collected.field === 'name' || s.collected.field === 'projectName') {
+    args.projectName = s.collected.value;
+  } else if (s.collected.field === 'status') {
+    args.status = s.collected.value;
+  } else {
+    // default to status if unclear
+    args.status = s.collected.value;
+  }
+  args.id = resolvedId;
+
+  console.log(`\n🤖 [Submitting update form to MCP tool update_project]`);
+  const spinner = startSpinner(["Updating the project...", "Applying changes..."]);
+  try {
+    const result = await mcpClient.callTool({ name: "update_project", arguments: args });
+    stopSpinner(spinner);
+
+    const contentArray = result.content as any[];
+    const textResponse = (contentArray && contentArray.length > 0 && contentArray[0].type === 'text')
+      ? contentArray[0].text
+      : JSON.stringify(result);
+
+    console.log(`📡 [Result ---> ${textResponse}]\n`);
+    messages.push({ role: "tool", tool_call_id: `local-update-${Date.now()}`, content: textResponse });
+    messages.push({ role: "assistant", content: textResponse });
+  } catch (err) {
+    stopSpinner(spinner);
+    console.error("❌ Error submitting update to MCP tool:", err);
+    messages.push({ role: "assistant", content: "Failed to update project. Please try again later." });
+  } finally {
+    sessions.delete(sessionId);
+  }
+}
+
+function startProjectForm(sessionId: string) {
+  sessions.set(sessionId, { intent: "create_project", collected: {}, fieldIndex: 0 });
+}
+
+function getCurrentField(sessionId: string) {
+  const s = sessions.get(sessionId);
+  if (!s) return null;
+  return PROJECT_SCHEMA[s.fieldIndex] ?? null;
+}
+
+function advanceField(sessionId: string) {
+  const s = sessions.get(sessionId);
+  if (!s) return;
+  s.fieldIndex += 1;
+  sessions.set(sessionId, s);
+}
+
+async function submitProjectForm(sessionId: string, messages: any[]) {
+  const s = sessions.get(sessionId);
+  if (!s) return;
+
+  const args = { ...s.collected };
+
+  console.log(`\n🤖 [Submitting form to MCP tool create_project]`);
+  const spinner = startSpinner(["Creating the project...", "Writing to the database..."]);
+  try {
+    const result = await mcpClient.callTool({ name: "create_project", arguments: args });
+    stopSpinner(spinner);
+
+    const contentArray = result.content as any[];
+    const textResponse = (contentArray && contentArray.length > 0 && contentArray[0].type === 'text')
+      ? contentArray[0].text
+      : JSON.stringify(result);
+
+    console.log(`📡 [Result ---> ${textResponse}]\n`);
+
+    messages.push({ role: "tool", tool_call_id: `local-create-${Date.now()}`, content: textResponse });
+    messages.push({ role: "assistant", content: `Created project: ${s.collected.projectName} (status: ${s.collected.status || 'Draft'})` });
+  } catch (err) {
+    stopSpinner(spinner);
+    console.error("❌ Error submitting form to MCP tool:", err);
+    messages.push({ role: "assistant", content: "Failed to create project. Please try again later." });
+  } finally {
+    sessions.delete(sessionId);
+  }
+}
+
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
 async function chat() {
@@ -192,18 +345,20 @@ async function chat() {
     // Ensure we send a valid object or omit if empty.
     const hasProperties = parameters.properties && Object.keys(parameters.properties).length > 0;
 
-    return {
-      type: "function" as const,
-      function: {
-        name: t.name,
-        description: t.description,
-        parameters: hasProperties ? parameters : { type: "object", properties: {} }
+      try {
+      const parsed = JSON.parse(textResponse);
+      if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].projectName) {
+        // store last project list for numeric references
+        lastProjectList = parsed;
+        const lines = parsed.map((p: any, i: number) => {
+          const name = p.projectName || p.projectName === 0 ? p.projectName : '<unnamed>';
+          const status = p.status || '';
+          const id = p._id || p.id || '';
+          return `${i + 1}. ${name} — ${status}${id ? ` (ID: ${id})` : ''}`;
+        });
+        pushedContent = `Here are the current projects in the system:\n\n` + lines.join('\n');
       }
-    };
-  });
-
-  const messages: any[] = [
-    {
+    } catch (e) {
       role: "system",
       content: `You are the exclusive OSM Project Manager Chatbot for Divergent Insights.
 Your ONLY job is to manage projects in MongoDB using the provided tools.
@@ -217,6 +372,72 @@ Rules:
   const askUser = () => {
     rl.question("You: ", async (input) => {
       if (input.toLowerCase() === "exit") process.exit(0);
+
+      const sessionId = "terminal"; // single-session terminal client
+
+      // Start create-project flow if user asked to create a project
+      const createTrigger = /\b(create|new|add)\b[\s\S]*\bproject\b/i;
+      const updateTrigger = /\b(update|change|edit)\b[\s\S]*\bproject\b/i;
+      if (createTrigger.test(input.trim())) {
+        startProjectForm(sessionId);
+        const first = getCurrentField(sessionId);
+        console.log(`\n🤖 Assistant: ${first?.prompt}\n`);
+        askUser();
+        return;
+      }
+      if (updateTrigger.test(input.trim())) {
+        startUpdateForm(sessionId);
+        const first = getCurrentUpdateField(sessionId);
+        console.log(`\n🤖 Assistant: ${first?.prompt}\n`);
+        askUser();
+        return;
+      }
+
+      // If there's an active form session, treat this input as an answer
+      if (sessions.has(sessionId)) {
+        const s = sessions.get(sessionId)!;
+        if (s.intent === 'create_project') {
+          const field = getCurrentField(sessionId);
+          if (field) {
+            const value = input.trim() || field.default || "";
+            s.collected[field.name] = value;
+            sessions.set(sessionId, s);
+
+            advanceField(sessionId);
+            const next = getCurrentField(sessionId);
+            if (next) {
+              stopSpinner(startSpinner(["...reading input..."]));
+              console.log(`\n🤖 Assistant: ${next.prompt}\n`);
+              askUser();
+              return;
+            } else {
+              await submitProjectForm(sessionId, messages);
+              askUser();
+              return;
+            }
+          }
+        } else if (s.intent === 'update_project') {
+          const field = getCurrentUpdateField(sessionId);
+          if (field) {
+            const value = input.trim() || field.default || "";
+            s.collected[field.name] = value;
+            sessions.set(sessionId, s);
+
+            advanceUpdateField(sessionId);
+            const next = getCurrentUpdateField(sessionId);
+            if (next) {
+              stopSpinner(startSpinner(["...reading input..."]));
+              console.log(`\n🤖 Assistant: ${next.prompt}\n`);
+              askUser();
+              return;
+            } else {
+              await submitUpdateForm(sessionId, messages);
+              askUser();
+              return;
+            }
+          }
+        }
+      }
 
       messages.push({ role: "user", content: input });
 

@@ -7,6 +7,8 @@ import './App.css'
 
 const API_URL = "http://localhost:4000"
 const MCP_URL = "http://localhost:3001"
+// Toggle visibility of the legacy/direct DB chat panel
+const SHOW_LEGACY = false
 
 // --- Components ---
 
@@ -56,17 +58,20 @@ function App() {
   const [token, setToken] = useState<string | null>(sessionStorage.getItem('jwtToken'))
   const [password, setPassword] = useState("")
   const [authError, setAuthError] = useState("")
-  
+
   const [projects, setProjects] = useState<any[]>([])
   const [projectName, setProjectName] = useState("")
-  
+  const [editingNames, setEditingNames] = useState<Record<string, string>>({})
+  const [lastUpdatedId, setLastUpdatedId] = useState<string | null>(null)
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null)
+
   const [modern, setModern] = useState<AssistantState>({
     messages: [{ role: 'system', content: 'Modern MCP Assistant' }],
     input: "",
     loading: false,
     status: ""
   })
-  
+
   const [legacy, setLegacy] = useState<AssistantState>({
     messages: [{ role: 'system', content: 'Legacy Direct Assistant' }],
     input: "",
@@ -118,14 +123,20 @@ function App() {
     }
   }
 
-  useEffect(() => { if (token) fetchProjects() }, [token])
+// Poll projects every 5 seconds so external updates (via MCP) are reflected
+useEffect(() => {
+  if (!token) return;
+  fetchProjects();
+  const id = setInterval(fetchProjects, 5000);
+  return () => clearInterval(id);
+}, [token]);
 
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!projectName || !token) return
     await fetch(`${API_URL}/projects`, {
       method: "POST",
-      headers: { 
+      headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${token}`
       },
@@ -147,17 +158,17 @@ function App() {
   const sendMessage = async (type: 'modern' | 'legacy') => {
     const state = type === 'modern' ? modern : legacy;
     const setState = type === 'modern' ? setModern : setLegacy;
-    
+
     if (!state.input || !token) return
-    
+
     const userMsg: Message = { role: 'user', content: state.input }
     const history = [...state.messages, userMsg]
-    
+
     setState(s => ({ ...s, input: "", messages: history, loading: true, status: "Processing..." }))
 
     try {
       let endpoint = type === 'modern' ? `${API_URL}/chat` : `${API_URL}/chat-direct`;
-      
+
       // Clean messages for API (remove UI-only properties like 'isNew')
       const cleanedMessages = history.map(m => {
         const cleaned: any = { role: m.role, content: m.content };
@@ -165,36 +176,36 @@ function App() {
         if (m.tool_call_id) cleaned.tool_call_id = m.tool_call_id;
         return cleaned;
       });
-      
+
       const payload: any = { messages: cleanedMessages };
 
       console.log(`📤 Sending to ${endpoint}:`, payload);
-      
+
       const res = await fetch(endpoint, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
         body: JSON.stringify(payload)
       });
-      
+
       console.log(`📥 Response status: ${res.status}`);
-      
+
       if (res.status === 401) {
         console.error('Unauthorized - clearing token');
         return handleLogout();
       }
-      
+
       if (!res.ok) {
         const errorText = await res.text();
         console.error(`❌ HTTP ${res.status}:`, errorText);
         throw new Error(`HTTP ${res.status}: ${errorText}`);
       }
-      
+
       const data = await res.json();
       console.log('Response data:', data);
-      
+
       const aiMsg = data.choices[0].message;
       let finalHistory = [...history, { ...aiMsg, isNew: true }];
 
@@ -218,9 +229,9 @@ function App() {
             <p>Enter password to access dashboard</p>
           </div>
           <form onSubmit={handleLogin}>
-            <input 
-              type="password" 
-              placeholder="Password..." 
+            <input
+              type="password"
+              placeholder="Password..."
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="auth-input"
@@ -242,7 +253,7 @@ function App() {
             <LogOut size={18} />
           </button>
         </div>
-        <p className="subtitle">Phase 4: Persistence & Polish • Secure Showdown</p>
+        <p className="subtitle">Testing Environment</p>
       </header>
 
       <div className="layout">
@@ -256,21 +267,96 @@ function App() {
           <div className="table-wrapper">
             <table>
               <thead>
-                <tr>
-                  <th>Project</th>
-                  <th>Status</th>
-                  <th>Created At</th>
-                </tr>
-              </thead>
-              <tbody>
-                {projects.map(p => (
-                  <tr key={p._id}>
-                    <td><strong>{p.projectName}</strong></td>
-                    <td><span className="status-badge">{p.status}</span></td>
-                    <td>{new Date(p.createdAt).toLocaleDateString()}</td>
+                  <tr>
+                    <th>#</th>
+                    <th>Project Name</th>
+                    <th>Status</th>
+                    <th>Created At</th>
+                    <th>Updated</th>
+                    <th>Actions</th>
                   </tr>
-                ))}
-              </tbody>
+                </thead>
+                <tbody>
+                  {projects.map((p, idx) => (
+                    <tr key={p._id} title={p._id} className={p._id === lastUpdatedId ? 'recent-updated' : ''}>
+                      <td>{idx + 1}</td>
+                      <td>
+                        <input
+                          value={editingNames[p._id] ?? p.projectName}
+                          onChange={(e) => setEditingNames(prev => ({ ...prev, [p._id]: e.target.value }))}
+                          onBlur={async (e) => {
+                            const newName = (editingNames[p._id] ?? p.projectName).trim();
+                            if (newName && newName !== p.projectName) {
+                              try {
+                                const res = await fetch(`${API_URL}/projects/${p._id}`, {
+                                  method: 'PATCH',
+                                  headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${token}`
+                                  },
+                                  body: JSON.stringify({ projectName: newName })
+                                });
+                                if (res.ok) {
+                                  const updated = await res.json();
+                                  setLastUpdatedId(p._id);
+                                  const now = new Date().toLocaleTimeString();
+                                  setLastUpdatedAt(now);
+                                  fetchProjects();
+                                  // clear highlight after a few seconds
+                                  setTimeout(() => { setLastUpdatedId(null); setLastUpdatedAt(null); }, 8000);
+                                } else if (res.status === 401) {
+                                  handleLogout();
+                                } else {
+                                  console.error('Failed to update name', await res.text());
+                                }
+                              } catch (err) {
+                                console.error('Update error', err);
+                              }
+                            }
+                          }}
+                          style={{ width: '100%', border: 'none', background: 'transparent', color: 'inherit' }}
+                        />
+                      </td>
+                      <td><span className="status-badge">{p.status}</span></td>
+                      <td>{new Date(p.createdAt).toLocaleDateString()}</td>
+                      <td>{p.updatedAt ? new Date(p.updatedAt).toLocaleString() : ''}</td>
+                      <td>
+                        <select
+                          defaultValue={p.status}
+                          onChange={async (e) => {
+                            const newStatus = e.target.value;
+                            try {
+                              const res = await fetch(`${API_URL}/projects/${p._id}`, {
+                                method: 'PATCH',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                  'Authorization': `Bearer ${token}`
+                                },
+                                body: JSON.stringify({ status: newStatus })
+                              });
+                              if (res.ok) {
+                                setLastUpdatedId(p._id);
+                                setLastUpdatedAt(new Date().toLocaleTimeString());
+                                fetchProjects();
+                                setTimeout(() => { setLastUpdatedId(null); setLastUpdatedAt(null); }, 8000);
+                              } else if (res.status === 401) {
+                                handleLogout();
+                              } else {
+                                console.error('Failed to update status', await res.text());
+                              }
+                            } catch (err) {
+                              console.error('Update error', err);
+                            }
+                          }}
+                        >
+                          <option>Draft</option>
+                          <option>In Progress</option>
+                          <option>Completed</option>
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
             </table>
           </div>
         </main>
@@ -282,9 +368,9 @@ function App() {
           <form onSubmit={handleManualSubmit}>
             <div className="form-group">
               <label>Project Name</label>
-              <input 
-                type="text" 
-                placeholder="New project..." 
+              <input
+                type="text"
+                placeholder="New project..."
                 value={projectName}
                 onChange={(e) => setProjectName(e.target.value)}
               />
@@ -318,7 +404,7 @@ function App() {
             {modern.loading && <div className="msg assistant" style={{ fontStyle: 'italic', opacity: 0.7 }}>{modern.status}</div>}
           </div>
           <div className="chat-input-row">
-            <input 
+            <input
               className="mini-input"
               placeholder="Test the bridge..."
               value={modern.input}
@@ -331,7 +417,8 @@ function App() {
           </div>
         </div>
 
-        {/* Legacy Assistant */}
+        {/* Legacy Assistant (hidden when SHOW_LEGACY=false) */}
+        {SHOW_LEGACY && (
         <div className="chat-panel">
           <div className="chat-panel-header direct">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -352,7 +439,7 @@ function App() {
             {legacy.loading && <div className="msg assistant legacy" style={{ fontStyle: 'italic', opacity: 0.7 }}>Directly accessing DB...</div>}
           </div>
           <div className="chat-input-row">
-            <input 
+            <input
               className="mini-input"
               placeholder="Test direct access..."
               value={legacy.input}
@@ -364,6 +451,7 @@ function App() {
             </button>
           </div>
         </div>
+        )}
       </div>
     </div>
   )

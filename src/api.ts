@@ -38,7 +38,8 @@ mongoose.connect("mongodb://localhost:27017/osm_mock")
 const projectSchema = new mongoose.Schema({
   projectName: { type: String, required: true },
   status: { type: String, default: "Draft" },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
 }, { collection: 'api_projects' });
 
 const ApiProject = mongoose.model("ApiProject", projectSchema);
@@ -79,7 +80,8 @@ app.get("/projects", authMiddleware, async (req, res) => {
 // POST new project
 app.post("/projects", authMiddleware, async (req, res) => {
   try {
-    const project = await ApiProject.create(req.body);
+    const body = { ...req.body, updatedAt: Date.now() };
+    const project = await ApiProject.create(body);
     res.status(201).json(project);
   } catch (err) {
     res.status(400).json({ error: "Failed to create project" });
@@ -89,7 +91,8 @@ app.post("/projects", authMiddleware, async (req, res) => {
 // PATCH update project
 app.patch("/projects/:id", authMiddleware, async (req, res) => {
   try {
-    const project = await ApiProject.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const payload = { ...req.body, updatedAt: Date.now() };
+    const project = await ApiProject.findByIdAndUpdate(req.params.id, payload, { new: true });
     res.json(project);
   } catch (err) {
     res.status(400).json({ error: "Failed to update project" });
@@ -162,9 +165,10 @@ app.post("/chat", authMiddleware, async (req, res) => {
             type: "object",
             properties: {
               id: { type: "string" },
-              status: { type: "string" }
+              status: { type: "string" },
+              projectName: { type: "string", description: "Optional new project name" }
             },
-            required: ["id", "status"]
+            required: ["id"]
           }
         }
       },
@@ -215,8 +219,12 @@ app.post("/chat", authMiddleware, async (req, res) => {
           });
           result = `✅ Successfully created project: "${created.projectName}" with status: ${created.status} (ID: ${created._id})`;
         } else if (toolCall.function.name === "update_project") {
-          const updated = await ApiProject.findByIdAndUpdate(args.id, { status: args.status }, { new: true });
-          result = `✅ Successfully updated project ID ${args.id} to status: ${updated?.status}`;
+          const updateFields: any = {};
+          if (args.status) updateFields.status = args.status;
+          if (args.projectName) updateFields.projectName = args.projectName;
+          updateFields.updatedAt = Date.now();
+          const updated = await ApiProject.findByIdAndUpdate(args.id, updateFields, { new: true });
+          result = `✅ Successfully updated project ID ${args.id}${updated ? ` -> ${updated.projectName} (${updated.status})` : ''}`;
         } else if (toolCall.function.name === "delete_project") {
           await ApiProject.findByIdAndDelete(args.id);
           result = `✅ Successfully deleted project ${args.id}`;
@@ -340,8 +348,12 @@ app.post("/chat-direct", authMiddleware, async (req, res) => {
           const created = await ApiProject.create({ projectName: args.projectName });
           result = `Created directly in DB: ${created.projectName} (${created._id})`;
         } else if (toolCall.function.name === "update_project") {
-          const updated = await ApiProject.findByIdAndUpdate(args.id, { status: args.status }, { new: true });
-          result = `Updated project ${args.id} status to: ${updated?.status}`;
+          const updateFields: any = {};
+          if (args.status) updateFields.status = args.status;
+          if (args.projectName) updateFields.projectName = args.projectName;
+          updateFields.updatedAt = Date.now();
+          const updated = await ApiProject.findByIdAndUpdate(args.id, updateFields, { new: true });
+          result = `Updated project ${args.id}${updated ? ` -> ${updated.projectName} (${updated.status})` : ''}`;
         } else if (toolCall.function.name === "delete_project") {
           await ApiProject.findByIdAndDelete(args.id);
           result = `Deleted project ${args.id}`;
